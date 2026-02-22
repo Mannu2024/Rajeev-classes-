@@ -16,7 +16,8 @@ import {
   XCircle,
   Download,
   UserPlus,
-  LogOut
+  LogOut,
+  CalendarCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
@@ -58,6 +59,13 @@ interface Student {
   teacher_id: string;
 }
 
+interface AttendanceRecord {
+  id: string;
+  student_id: number;
+  attendance_date: string;
+  status: 'Present' | 'Absent' | 'Leave' | 'Holiday';
+}
+
 interface Fee {
   id: number;
   student_id: number;
@@ -81,6 +89,8 @@ interface DashboardData {
 }
 
 // --- Components ---
+const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
 const Card = ({ children, className = "", ...props }: { children: React.ReactNode, className?: string, [key: string]: any }) => (
   <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-6 ${className}`} {...props}>
     {children}
@@ -103,11 +113,14 @@ const Badge = ({ children, variant = 'default' }: { children: React.ReactNode, v
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [view, setView] = useState<'dashboard' | 'students' | 'fees' | 'reports'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'attendance' | 'students' | 'fees' | 'reports'>('dashboard');
   const [students, setStudents] = useState<Student[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [reportFilter, setReportFilter] = useState('');
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showFeeModal, setShowFeeModal] = useState(false);
@@ -166,6 +179,14 @@ export default function App() {
       .order('full_name', { ascending: true });
     
     if (studentsData) setStudents(studentsData);
+
+    // Fetch Attendance
+    const { data: attData } = await client
+      .from('attendance')
+      .select('*')
+      .eq('attendance_date', attendanceDate);
+      
+    if (attData) setAttendance(attData);
 
     // Fetch Dashboard/Fees for selected month
     const startOfMonth = `${selectedMonth}-01`;
@@ -228,12 +249,17 @@ export default function App() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'fees' }, () => fetchData())
         .subscribe();
 
+      const attendanceChannel = client.channel('attendance-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => fetchData())
+        .subscribe();
+
       return () => {
         client.removeChannel(studentsChannel);
         client.removeChannel(feesChannel);
+        client.removeChannel(attendanceChannel);
       };
     }
-  }, [session, selectedMonth]);
+  }, [session, selectedMonth, attendanceDate]);
 
   const filteredStudents = useMemo(() => {
     return students.filter(s => 
@@ -244,6 +270,25 @@ export default function App() {
   }, [students, searchTerm]);
 
   // --- Actions ---
+  const markAttendance = async (studentId: number, status: string) => {
+    const client = getSupabase();
+    if (!client) return;
+
+    const { error } = await client.from('attendance').upsert({
+      student_id: studentId,
+      attendance_date: attendanceDate,
+      status,
+      teacher_id: session.user.id
+    }, { onConflict: 'student_id,attendance_date' });
+
+    if (error) {
+      console.error("Attendance error:", error);
+      alert(`Failed to mark attendance: ${error.message}`);
+    } else {
+      fetchData();
+    }
+  };
+
   const handleAddStudent = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const client = getSupabase();
@@ -311,13 +356,15 @@ export default function App() {
   const exportCSV = () => {
     if (!dashboard?.paidFees) return;
     const headers = ['Student Name', 'Amount', 'Date', 'Mode', 'Reference'];
-    const rows = dashboard.paidFees.map(f => [
-      f.student.full_name,
-      f.amount,
-      f.paid_date,
-      f.payment_mode,
-      f.payment_reference || ''
-    ]);
+    const rows = dashboard.paidFees
+      .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
+      .map(f => [
+        f.student?.full_name || 'Unknown',
+        f.amount,
+        f.paid_date,
+        f.payment_mode,
+        f.payment_reference || ''
+      ]);
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -456,6 +503,7 @@ export default function App() {
         <nav className="space-y-1">
           {[
             { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+            { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
             { id: 'students', label: 'Students', icon: Users },
             { id: 'fees', label: 'Fees', icon: CreditCard },
             { id: 'reports', label: 'Reports', icon: Download },
@@ -499,6 +547,103 @@ export default function App() {
         </header>
 
         <AnimatePresence mode="wait">
+          {view === 'attendance' && (
+            <motion.div key="att" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+                <div className="flex gap-4 items-center w-full sm:w-auto">
+                  <input 
+                    type="date" 
+                    value={attendanceDate} 
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <select 
+                    className="bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    value={searchTerm}
+                  >
+                    <option value="">All Classes</option>
+                    {[...new Set(students.map(s => s.class_grade))].sort().map(c => (
+                      <option key={c} value={c}>Grade {c}</option>
+                    ))}
+                  </select>
+                </div>
+                <button 
+                  onClick={async () => {
+                    const client = getSupabase();
+                    if (!client) return;
+                    const active = filteredStudents.filter(s => s.status === 'Active');
+                    const upserts = active.map(s => ({
+                      student_id: s.id,
+                      attendance_date: attendanceDate,
+                      status: 'Present',
+                      teacher_id: session.user.id
+                    }));
+                    await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
+                    fetchData();
+                  }}
+                  className="w-full sm:w-auto bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-emerald-600 transition-colors"
+                >
+                  <CheckCircle2 size={20} /> Mark All Present
+                </button>
+              </div>
+
+              <Card className="!p-0 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-zinc-50 border-b border-black/5">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-black/5">
+                    {filteredStudents.filter(s => s.status === 'Active').length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-6 py-12 text-center text-zinc-400">
+                          <CalendarCheck className="mx-auto mb-3 opacity-20" size={48} />
+                          <p className="font-medium">No active students found</p>
+                        </td>
+                      </tr>
+                    ) : filteredStudents.filter(s => s.status === 'Active').map(s => {
+                      const record = attendance.find(a => a.student_id === s.id);
+                      return (
+                        <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                              {getInitials(s.full_name)}
+                            </div>
+                            <span className="font-bold">{s.full_name}</span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex gap-2 justify-end">
+                              {['Present', 'Absent', 'Leave'].map(status => (
+                                <button
+                                  key={status}
+                                  onClick={() => markAttendance(s.id, status)}
+                                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                    record?.status === status 
+                                      ? status === 'Present' ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm' 
+                                      : status === 'Absent' ? 'bg-rose-500 text-white border-rose-500 shadow-sm'
+                                      : 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                    : 'bg-white text-zinc-500 border-black/10 hover:bg-zinc-50'
+                                  }`}
+                                >
+                                  {status}
+                                </button>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Card>
+            </motion.div>
+          )}
+
           {view === 'dashboard' && (
             <motion.div key="dash" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
               {(!dbHealth.students || !dbHealth.profiles || !dbHealth.profileExists) && (
@@ -554,10 +699,15 @@ export default function App() {
                   <h3 className="font-bold mb-4">Unpaid Students</h3>
                   <div className="flex-1 overflow-y-auto space-y-3 pr-2">
                       {dashboard?.unpaidStudents.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-black/5">
-                        <div>
-                          <p className="font-bold text-sm">{s.full_name}</p>
-                          <p className="text-xs text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</p>
+                      <div key={s.id} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-black/5 hover:border-indigo-100 hover:bg-indigo-50/30 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                            {getInitials(s.full_name)}
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">{s.full_name}</p>
+                            <p className="text-xs text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button 
@@ -578,23 +728,46 @@ export default function App() {
                     ))}
                   </div>
                 </Card>
-                <Card className="h-[400px] flex flex-col justify-center space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm font-bold">
-                      <span>Cash</span>
-                      <span>₹{dashboard?.cashCollected.toLocaleString()}</span>
+                <Card className="h-[400px] flex flex-col">
+                  <h3 className="font-bold mb-6">Collection Summary</h3>
+                  <div className="flex-1 flex flex-col justify-center space-y-8">
+                    <div className="text-center mb-2">
+                      <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mb-2">Total Revenue</p>
+                      <p className="text-5xl font-black text-zinc-900">₹{dashboard?.totalCollected.toLocaleString() || 0}</p>
                     </div>
-                    <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500" style={{ width: `${(dashboard?.cashCollected || 0) / (dashboard?.totalCollected || 1) * 100}%` }}></div>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-bold flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500"></div> Cash
+                        </span>
+                        <div className="text-right">
+                          <span className="font-bold">₹{dashboard?.cashCollected.toLocaleString()}</span>
+                          <span className="text-zinc-400 ml-2 text-xs">
+                            ({dashboard?.totalCollected ? Math.round((dashboard.cashCollected / dashboard.totalCollected) * 100) : 0}%)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-3 bg-zinc-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${(dashboard?.cashCollected || 0) / (dashboard?.totalCollected || 1) * 100}%` }}></div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm font-bold">
-                      <span>Online</span>
-                      <span>₹{dashboard?.onlineCollected.toLocaleString()}</span>
-                    </div>
-                    <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500" style={{ width: `${(dashboard?.onlineCollected || 0) / (dashboard?.totalCollected || 1) * 100}%` }}></div>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-bold flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-indigo-500"></div> Online
+                        </span>
+                        <div className="text-right">
+                          <span className="font-bold">₹{dashboard?.onlineCollected.toLocaleString()}</span>
+                          <span className="text-zinc-400 ml-2 text-xs">
+                            ({dashboard?.totalCollected ? Math.round((dashboard.onlineCollected / dashboard.totalCollected) * 100) : 0}%)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-3 bg-zinc-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${(dashboard?.onlineCollected || 0) / (dashboard?.totalCollected || 1) * 100}%` }}></div>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -620,18 +793,35 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead className="bg-zinc-50 border-b border-black/5">
                     <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Name</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Contact & School</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
                       <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Status</th>
                       <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
-                    {filteredStudents.map(s => (
+                    {filteredStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-400">
+                          <Users className="mx-auto mb-3 opacity-20" size={48} />
+                          <p className="font-medium">No students found</p>
+                        </td>
+                      </tr>
+                    ) : filteredStudents.map(s => (
                       <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors group">
+                        <td className="px-6 py-4 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm shrink-0">
+                            {getInitials(s.full_name)}
+                          </div>
+                          <div>
+                            <p className="font-bold">{s.full_name}</p>
+                            <p className="text-xs text-zinc-400">Joined {s.admission_date}</p>
+                          </div>
+                        </td>
                         <td className="px-6 py-4">
-                          <p className="font-bold">{s.full_name}</p>
-                          <p className="text-xs text-zinc-400">{s.parent_phone}</p>
+                          <p className="text-sm font-medium">{s.parent_phone}</p>
+                          <p className="text-xs text-zinc-400 truncate max-w-[150px]">{s.school_name || 'No School'}</p>
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-sm font-medium">Grade {s.class_grade}</p>
@@ -649,13 +839,88 @@ export default function App() {
             </motion.div>
           )}
 
+          {view === 'fees' && (
+            <motion.div key="fees" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+              <div className="flex flex-col sm:flex-row gap-4 justify-between">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                  <input 
+                    type="text" placeholder="Search active students..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-black/5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                  />
+                </div>
+              </div>
+              <Card className="!p-0 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-zinc-50 border-b border-black/5">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Fee Status ({selectedMonth})</th>
+                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-black/5">
+                    {filteredStudents.filter(s => s.status === 'Active').length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-zinc-400">
+                          <CreditCard className="mx-auto mb-3 opacity-20" size={48} />
+                          <p className="font-medium">No active students found</p>
+                        </td>
+                      </tr>
+                    ) : filteredStudents.filter(s => s.status === 'Active').map(s => {
+                      const isPaid = dashboard?.paidFees.find(f => f.student_id === s.id);
+                      return (
+                        <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors group">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                              {getInitials(s.full_name)}
+                            </div>
+                            <div>
+                              <p className="font-bold">{s.full_name}</p>
+                              <p className="text-xs text-zinc-400">{s.parent_phone}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-medium">Grade {s.class_grade}</p>
+                            <p className="text-xs text-zinc-400">{s.batch_timing || 'No Batch'}</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            {isPaid ? (
+                              <Badge variant="success">Paid ₹{isPaid.amount}</Badge>
+                            ) : (
+                              <Badge variant="danger">Unpaid</Badge>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {!isPaid ? (
+                              <button 
+                                onClick={() => { setSelectedStudent(s); setShowFeeModal(true); }}
+                                className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors"
+                              >
+                                Record Fee
+                              </button>
+                            ) : (
+                              <span className="text-xs text-zinc-400 font-medium">Paid on {isPaid.paid_date}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Card>
+            </motion.div>
+          )}
+
           {view === 'reports' && (
             <motion.div key="rep" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="flex justify-between items-center">
                 <div className="flex gap-4">
                   <select 
                     className="bg-white border border-black/5 rounded-xl px-4 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => setReportFilter(e.target.value)}
+                    value={reportFilter}
                   >
                     <option value="">All Classes</option>
                     {[...new Set(students.map(s => s.class_grade))].sort().map(c => (
@@ -682,12 +947,24 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
-                    {dashboard?.paidFees
-                      .filter(f => !searchTerm || f.student.class_grade === searchTerm)
+                    {(!dashboard?.paidFees || dashboard.paidFees.length === 0) ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-400">
+                          <CreditCard className="mx-auto mb-3 opacity-20" size={48} />
+                          <p className="font-medium">No fees recorded for this month</p>
+                        </td>
+                      </tr>
+                    ) : dashboard.paidFees
+                      .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
                       .map(f => (
-                      <tr key={f.id}>
-                        <td className="px-6 py-4 font-bold">{f.student.full_name}</td>
-                        <td className="px-6 py-4 text-sm text-zinc-500">Grade {f.student.class_grade}</td>
+                      <tr key={f.id} className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="px-6 py-4 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
+                            {getInitials(f.student?.full_name || 'U')}
+                          </div>
+                          <span className="font-bold">{f.student?.full_name || 'Unknown'}</span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-zinc-500">Grade {f.student?.class_grade || 'N/A'}</td>
                         <td className="px-6 py-4 font-bold text-emerald-600">₹{f.amount}</td>
                         <td className="px-6 py-4 text-sm text-zinc-500">{f.paid_date}</td>
                         <td className="px-6 py-4"><Badge>{f.payment_mode}</Badge></td>
