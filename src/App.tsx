@@ -17,7 +17,8 @@ import {
   Download,
   UserPlus,
   LogOut,
-  CalendarCheck
+  CalendarCheck,
+  History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
@@ -124,6 +125,9 @@ export default function App() {
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showFeeModal, setShowFeeModal] = useState(false);
+  const [historyStudent, setHistoryStudent] = useState<Student | null>(null);
+  const [studentFees, setStudentFees] = useState<Fee[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [dbHealth, setDbHealth] = useState<{ students: boolean, profiles: boolean, profileExists: boolean }>({ students: true, profiles: true, profileExists: true });
@@ -351,6 +355,22 @@ export default function App() {
     await client.from('students')
       .update({ status: 'Left', leaving_date: new Date().toISOString().split('T')[0] })
       .eq('id', id);
+  };
+
+  const viewStudentHistory = async (student: Student) => {
+    setHistoryStudent(student);
+    setStudentFees([]);
+    setLoadingHistory(true);
+    const client = getSupabase();
+    if (client) {
+      const { data } = await client
+        .from('fees')
+        .select('*')
+        .eq('student_id', student.id)
+        .order('fee_month', { ascending: false });
+      if (data) setStudentFees(data);
+    }
+    setLoadingHistory(false);
   };
 
   const exportCSV = () => {
@@ -829,7 +849,14 @@ export default function App() {
                         </td>
                         <td className="px-6 py-4"><Badge variant={s.status === 'Active' ? 'success' : 'danger'}>{s.status}</Badge></td>
                         <td className="px-6 py-4 text-right">
-                          <button onClick={() => markAsLeft(s.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg"><XCircle size={18} /></button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => viewStudentHistory(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Payment History">
+                              <History size={18} />
+                            </button>
+                            <button onClick={() => markAsLeft(s.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg" title="Mark as Left">
+                              <XCircle size={18} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1025,6 +1052,52 @@ export default function App() {
                   <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700">Confirm</button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {historyStudent && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+              <div className="p-6 bg-indigo-600 text-white flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold">Payment History</h3>
+                  <p className="text-indigo-100">{historyStudent.full_name}</p>
+                </div>
+                <button onClick={() => setHistoryStudent(null)} className="text-white/70 hover:text-white">
+                  <XCircle size={24} />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto">
+                {loadingHistory ? (
+                  <p className="text-center text-zinc-500 py-8">Loading history...</p>
+                ) : studentFees.length === 0 ? (
+                  <p className="text-center text-zinc-500 py-8">No payment history found.</p>
+                ) : (
+                  <table className="w-full text-left">
+                    <thead className="bg-zinc-50 border-b border-black/5">
+                      <tr>
+                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Month</th>
+                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Amount</th>
+                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Date Paid</th>
+                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Mode</th>
+                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Reference</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-black/5">
+                      {studentFees.map(f => (
+                        <tr key={f.id} className="hover:bg-zinc-50/50">
+                          <td className="px-4 py-3 font-medium">{f.fee_month}</td>
+                          <td className="px-4 py-3 font-bold text-emerald-600">₹{f.amount}</td>
+                          <td className="px-4 py-3 text-sm text-zinc-500">{f.paid_date}</td>
+                          <td className="px-4 py-3"><Badge>{f.payment_mode}</Badge></td>
+                          <td className="px-4 py-3 text-sm text-zinc-500">{f.payment_reference || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </motion.div>
           </div>
         )}
