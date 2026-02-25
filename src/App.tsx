@@ -484,11 +484,9 @@ export default function App() {
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
         <Card className="w-full max-w-md">
-          <div className="flex items-center gap-3 mb-8 justify-center">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl">
-              <School size={28} />
-            </div>
-            <h1 className="text-2xl font-black tracking-tight">Rajeev Classes</h1>
+          <div className="flex flex-col items-center gap-3 mb-8 justify-center text-center">
+            <img src="/logo.png" alt="Rajeev Classes Logo" className="h-24 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <h1 className="text-2xl font-black tracking-tight leading-tight">Rajeev Classes<br/><span className="text-base text-zinc-500 font-medium">Management System</span></h1>
           </div>
 
           {!isConfigured ? (
@@ -539,11 +537,9 @@ export default function App() {
     <div className="min-h-screen bg-[#F8F9FA] text-zinc-900 font-sans pb-24 md:pb-0 md:pl-64">
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-black/5 p-6 z-40">
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-            <School size={24} />
-          </div>
-          <h1 className="font-bold text-xl tracking-tight">Rajeev Classes</h1>
+        <div className="flex flex-col gap-3 mb-10 px-2">
+          <img src="/logo.png" alt="Rajeev Classes Logo" className="h-16 object-contain self-start" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+          <h1 className="font-bold text-xl tracking-tight leading-tight">Rajeev Classes<br/><span className="text-sm text-zinc-500 font-medium">Management System</span></h1>
         </div>
         <nav className="space-y-1">
           {[
@@ -600,6 +596,10 @@ export default function App() {
 
       {/* Main Content */}
       <main className="p-4 md:p-8 max-w-6xl mx-auto">
+        <div className="md:hidden flex items-center gap-3 mb-6">
+          <img src="/logo.png" alt="Rajeev Classes Logo" className="h-12 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+          <h1 className="font-bold text-lg tracking-tight leading-tight">Rajeev Classes<br/><span className="text-xs text-zinc-500 font-medium">Management System</span></h1>
+        </div>
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div className="flex justify-between items-start md:items-center">
             <div>
