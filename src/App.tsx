@@ -391,6 +391,8 @@ export default function App() {
     await client.from('students')
       .update({ status: 'Left', leaving_date: new Date().toISOString().split('T')[0] })
       .eq('id', id);
+    
+    fetchData();
   };
 
   const viewStudentHistory = async (student: Student) => {
@@ -701,13 +703,14 @@ export default function App() {
               </div>
 
               <Card className="!p-0 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-zinc-50 border-b border-black/5">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Status</th>
-                    </tr>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead className="bg-zinc-50 border-b border-black/5">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Status</th>
+                      </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
                     {filteredStudents.filter(s => s.status === 'Active').length === 0 ? (
@@ -753,6 +756,7 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </Card>
             </motion.div>
           )}
@@ -903,12 +907,13 @@ export default function App() {
                 </button>
               </div>
               <Card className="!p-0 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-zinc-50 border-b border-black/5">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Contact & School</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead className="bg-zinc-50 border-b border-black/5">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Contact & School</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
                       <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Status</th>
                       <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Actions</th>
                     </tr>
@@ -955,6 +960,7 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </Card>
             </motion.div>
           )}
@@ -971,12 +977,13 @@ export default function App() {
                 </div>
               </div>
               <Card className="!p-0 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-zinc-50 border-b border-black/5">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Fee Status ({selectedMonth})</th>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left whitespace-nowrap">
+                    <thead className="bg-zinc-50 border-b border-black/5">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Fee Status ({selectedMonth})</th>
                       <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Action</th>
                     </tr>
                   </thead>
@@ -1029,6 +1036,7 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </Card>
             </motion.div>
           )}
@@ -1070,8 +1078,9 @@ export default function App() {
                 </div>
               </div>
               <Card className="!p-0 overflow-hidden">
+                <div className="overflow-x-auto">
                 {reportType === 'fees' ? (
-                  <table className="w-full text-left">
+                  <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
@@ -1108,7 +1117,7 @@ export default function App() {
                     </tbody>
                   </table>
                 ) : (
-                  <table className="w-full text-left">
+                  <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
@@ -1145,6 +1154,7 @@ export default function App() {
                     </tbody>
                   </table>
                 )}
+                </div>
               </Card>
             </motion.div>
           )}
@@ -1220,10 +1230,11 @@ export default function App() {
                 ) : studentFees.length === 0 ? (
                   <p className="text-center text-zinc-500 py-8">No payment history found.</p>
                 ) : (
-                  <table className="w-full text-left">
-                    <thead className="bg-zinc-50 border-b border-black/5">
-                      <tr>
-                        <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Month</th>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left whitespace-nowrap">
+                      <thead className="bg-zinc-50 border-b border-black/5">
+                        <tr>
+                          <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Month</th>
                         <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Amount</th>
                         <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Date Paid</th>
                         <th className="px-4 py-3 text-xs font-bold text-zinc-400 uppercase">Mode</th>
@@ -1242,6 +1253,7 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
             </motion.div>
