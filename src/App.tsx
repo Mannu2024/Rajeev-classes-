@@ -574,12 +574,39 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Mobile Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-black/5 flex justify-around p-2 z-40 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        {[
+          { id: 'dashboard', label: 'Home', icon: BarChart3 },
+          { id: 'attendance', label: 'Attd', icon: CalendarCheck },
+          { id: 'students', label: 'Students', icon: Users },
+          { id: 'fees', label: 'Fees', icon: CreditCard },
+          { id: 'reports', label: 'Reports', icon: Download },
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setView(item.id as any)}
+            className={`flex flex-col items-center p-2 rounded-xl transition-all ${
+              view === item.id ? 'text-indigo-600' : 'text-zinc-500 hover:text-zinc-900'
+            }`}
+          >
+            <item.icon size={20} className="mb-1" />
+            <span className="text-[10px] font-medium">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+
       {/* Main Content */}
       <main className="p-4 md:p-8 max-w-6xl mx-auto">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h2 className="text-2xl font-bold capitalize">{view}</h2>
-            <p className="text-zinc-500 text-sm">Real-time student & fee management.</p>
+          <div className="flex justify-between items-start md:items-center">
+            <div>
+              <h2 className="text-2xl font-bold capitalize">{view}</h2>
+              <p className="text-zinc-500 text-sm">Real-time student & fee management.</p>
+            </div>
+            <button onClick={() => getSupabase()?.auth.signOut()} className="md:hidden text-zinc-400 hover:text-rose-600 p-2 bg-white rounded-xl border border-black/5 shadow-sm">
+              <LogOut size={20} />
+            </button>
           </div>
           <input 
             type="month" 
@@ -593,8 +620,8 @@ export default function App() {
           {view === 'attendance' && (
             <motion.div key="att" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
-                <div className="flex gap-4 items-center w-full sm:w-auto">
-                  <div className="flex items-center bg-white border border-black/5 rounded-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500">
+                <div className="flex flex-col sm:flex-row gap-4 items-center w-full sm:w-auto">
+                  <div className="flex items-center justify-between bg-white border border-black/5 rounded-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 w-full sm:w-auto">
                     <button 
                       onClick={() => {
                         const d = new Date(attendanceDate);
@@ -609,7 +636,7 @@ export default function App() {
                       type="date" 
                       value={attendanceDate} 
                       onChange={(e) => setAttendanceDate(e.target.value)}
-                      className="px-2 py-2.5 text-sm font-medium outline-none border-x border-black/5"
+                      className="px-2 py-2.5 text-sm font-medium outline-none border-x border-black/5 w-full text-center sm:w-auto"
                     />
                     <button 
                       onClick={() => {
@@ -623,7 +650,7 @@ export default function App() {
                     </button>
                   </div>
                   <select 
-                    className="bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full sm:w-auto bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
                     onChange={(e) => setSearchTerm(e.target.value)}
                     value={searchTerm}
                   >
@@ -633,7 +660,7 @@ export default function App() {
                     ))}
                   </select>
                 </div>
-                <div className="flex gap-2 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <button 
                     onClick={async () => {
                       const client = getSupabase();
@@ -864,14 +891,14 @@ export default function App() {
           {view === 'students' && (
             <motion.div key="stu" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="flex flex-col sm:flex-row gap-4 justify-between">
-                <div className="relative flex-1 max-w-md">
+                <div className="relative w-full sm:max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
                   <input 
                     type="text" placeholder="Search students..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 bg-white border border-black/5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                   />
                 </div>
-                <button onClick={() => setShowAddStudent(true)} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-indigo-700">
+                <button onClick={() => setShowAddStudent(true)} className="w-full sm:w-auto justify-center bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-indigo-700">
                   <UserPlus size={20} /> Add Student
                 </button>
               </div>
@@ -935,7 +962,7 @@ export default function App() {
           {view === 'fees' && (
             <motion.div key="fees" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="flex flex-col sm:flex-row gap-4 justify-between">
-                <div className="relative flex-1 max-w-md">
+                <div className="relative w-full sm:max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
                   <input 
                     type="text" placeholder="Search active students..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
@@ -1023,9 +1050,9 @@ export default function App() {
                     Attendance Report
                   </button>
                 </div>
-                <div className="flex gap-4 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                   <select 
-                    className="bg-white border border-black/5 rounded-xl px-4 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
+                    className="w-full sm:w-auto bg-white border border-black/5 rounded-xl px-4 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
                     onChange={(e) => setReportFilter(e.target.value)}
                     value={reportFilter}
                   >
@@ -1036,7 +1063,7 @@ export default function App() {
                   </select>
                   <button 
                     onClick={exportCSV}
-                    className="bg-white border border-black/5 text-zinc-700 px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-zinc-50 flex-1 sm:flex-none"
+                    className="w-full sm:w-auto bg-white border border-black/5 text-zinc-700 px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-zinc-50"
                   >
                     <Download size={20} /> Export
                   </button>
