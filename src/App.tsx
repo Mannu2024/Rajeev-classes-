@@ -96,7 +96,7 @@ interface DashboardData {
 const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
 const Card = ({ children, className = "", ...props }: { children: React.ReactNode, className?: string, [key: string]: any }) => (
-  <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-6 ${className}`} {...props}>
+  <div className={`bg-white rounded-2xl border border-black/5 shadow-sm p-4 md:p-6 ${className}`} {...props}>
     {children}
   </div>
 );
@@ -314,12 +314,25 @@ export default function App() {
     const client = getSupabase();
     if (!client) return;
 
-    const { error } = await client.from('attendance').upsert({
-      student_id: studentId,
-      attendance_date: attendanceDate,
-      status,
-      teacher_id: session.user.id
-    }, { onConflict: 'student_id,attendance_date' });
+    // Debug: check attendance table columns
+    const { data: cols } = await client.rpc('get_attendance_columns'); // if exists, or just try to insert without teacher_id
+    
+    // Let's try to find if the record exists first to avoid upsert issues
+    const existingRecord = attendance.find(a => a.student_id === studentId && a.attendance_date === attendanceDate);
+
+    let error;
+    if (existingRecord) {
+      const res = await client.from('attendance').update({ status }).eq('id', existingRecord.id);
+      error = res.error;
+    } else {
+      const res = await client.from('attendance').insert({
+        student_id: studentId,
+        attendance_date: attendanceDate,
+        status,
+        teacher_id: session.user.id
+      });
+      error = res.error;
+    }
 
     if (error) {
       console.error("Attendance error:", error);
@@ -668,13 +681,21 @@ export default function App() {
                       const client = getSupabase();
                       if (!client) return;
                       const active = filteredStudents.filter(s => s.status === 'Active');
-                      const upserts = active.map(s => ({
-                        student_id: s.id,
-                        attendance_date: attendanceDate,
-                        status: 'Present',
-                        teacher_id: session.user.id
-                      }));
-                      await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
+                      
+                      // Process sequentially to avoid RLS upsert issues
+                      for (const s of active) {
+                        const existingRecord = attendance.find(a => a.student_id === s.id && a.attendance_date === attendanceDate);
+                        if (existingRecord) {
+                          await client.from('attendance').update({ status: 'Present' }).eq('id', existingRecord.id);
+                        } else {
+                          await client.from('attendance').insert({
+                            student_id: s.id,
+                            attendance_date: attendanceDate,
+                            status: 'Present',
+                            teacher_id: session.user.id
+                          });
+                        }
+                      }
                       fetchData();
                     }}
                     className="flex-1 sm:flex-none bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-emerald-600 transition-colors"
@@ -686,13 +707,21 @@ export default function App() {
                       const client = getSupabase();
                       if (!client) return;
                       const active = filteredStudents.filter(s => s.status === 'Active');
-                      const upserts = active.map(s => ({
-                        student_id: s.id,
-                        attendance_date: attendanceDate,
-                        status: 'Holiday',
-                        teacher_id: session.user.id
-                      }));
-                      await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
+                      
+                      // Process sequentially to avoid RLS upsert issues
+                      for (const s of active) {
+                        const existingRecord = attendance.find(a => a.student_id === s.id && a.attendance_date === attendanceDate);
+                        if (existingRecord) {
+                          await client.from('attendance').update({ status: 'Holiday' }).eq('id', existingRecord.id);
+                        } else {
+                          await client.from('attendance').insert({
+                            student_id: s.id,
+                            attendance_date: attendanceDate,
+                            status: 'Holiday',
+                            teacher_id: session.user.id
+                          });
+                        }
+                      }
                       fetchData();
                     }}
                     className="flex-1 sm:flex-none bg-indigo-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-indigo-600 transition-colors"
@@ -707,9 +736,9 @@ export default function App() {
                   <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Status</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-right sticky right-0 bg-zinc-50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">Status</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
@@ -723,15 +752,15 @@ export default function App() {
                     ) : filteredStudents.filter(s => s.status === 'Active').map(s => {
                       const record = attendance.find(a => a.student_id === s.id);
                       return (
-                        <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-4 flex items-center gap-3">
+                        <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors group">
+                          <td className="px-4 py-3 md:px-6 md:py-4 flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
                               {getInitials(s.full_name)}
                             </div>
                             <span className="font-bold">{s.full_name}</span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-sm text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-right sticky right-0 bg-white group-hover:bg-zinc-50/50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">
                             <div className="flex gap-2 justify-end">
                               {['Present', 'Absent', 'Leave', 'Holiday'].map(status => (
                                 <button
@@ -911,12 +940,12 @@ export default function App() {
                   <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Contact & School</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Status</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Actions</th>
-                    </tr>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Contact & School</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Status</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-right sticky right-0 bg-zinc-50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">Actions</th>
+                      </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
                     {filteredStudents.length === 0 ? (
@@ -928,7 +957,7 @@ export default function App() {
                       </tr>
                     ) : filteredStudents.map(s => (
                       <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors group">
-                        <td className="px-6 py-4 flex items-center gap-3">
+                        <td className="px-4 py-3 md:px-6 md:py-4 flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm shrink-0">
                             {getInitials(s.full_name)}
                           </div>
@@ -937,16 +966,16 @@ export default function App() {
                             <p className="text-xs text-zinc-400">Joined {s.admission_date}</p>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 md:px-6 md:py-4">
                           <p className="text-sm font-medium">{s.parent_phone}</p>
                           <p className="text-xs text-zinc-400 truncate max-w-[150px]">{s.school_name || 'No School'}</p>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-3 md:px-6 md:py-4">
                           <p className="text-sm font-medium">Grade {s.class_grade}</p>
                           <p className="text-xs text-zinc-400">{s.batch_timing || 'No Batch'}</p>
                         </td>
-                        <td className="px-6 py-4"><Badge variant={s.status === 'Active' ? 'success' : 'danger'}>{s.status}</Badge></td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-3 md:px-6 md:py-4"><Badge variant={s.status === 'Active' ? 'success' : 'danger'}>{s.status}</Badge></td>
+                        <td className="px-4 py-3 md:px-6 md:py-4 text-right sticky right-0 bg-white group-hover:bg-zinc-50/50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">
                           <div className="flex items-center justify-end gap-2">
                             <button onClick={() => viewStudentHistory(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Payment History">
                               <History size={18} />
@@ -981,11 +1010,11 @@ export default function App() {
                   <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Fee Status ({selectedMonth})</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-right">Action</th>
-                    </tr>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Class & Batch</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Fee Status ({selectedMonth})</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-right sticky right-0 bg-zinc-50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">Action</th>
+                      </tr>
                   </thead>
                   <tbody className="divide-y divide-black/5">
                     {filteredStudents.filter(s => s.status === 'Active').length === 0 ? (
@@ -999,7 +1028,7 @@ export default function App() {
                       const isPaid = dashboard?.paidFees.find(f => f.student_id === s.id);
                       return (
                         <tr key={s.id} className="hover:bg-zinc-50/50 transition-colors group">
-                          <td className="px-6 py-4 flex items-center gap-3">
+                          <td className="px-4 py-3 md:px-6 md:py-4 flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
                               {getInitials(s.full_name)}
                             </div>
@@ -1008,18 +1037,18 @@ export default function App() {
                               <p className="text-xs text-zinc-400">{s.parent_phone}</p>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3 md:px-6 md:py-4">
                             <p className="text-sm font-medium">Grade {s.class_grade}</p>
                             <p className="text-xs text-zinc-400">{s.batch_timing || 'No Batch'}</p>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3 md:px-6 md:py-4">
                             {isPaid ? (
                               <Badge variant="success">Paid ₹{isPaid.amount}</Badge>
                             ) : (
                               <Badge variant="danger">Unpaid</Badge>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-right sticky right-0 bg-white group-hover:bg-zinc-50/50 z-10 shadow-[-12px_0_15px_-5px_rgba(0,0,0,0.05)]">
                             {!isPaid ? (
                               <button 
                                 onClick={() => { setSelectedStudent(s); setShowFeeModal(true); }}
@@ -1083,11 +1112,11 @@ export default function App() {
                   <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Amount</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Date</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Mode</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Amount</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Date</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Mode</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-black/5">
@@ -1120,12 +1149,12 @@ export default function App() {
                   <table className="w-full text-left whitespace-nowrap">
                     <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Present</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Absent</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Leave</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Holiday</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase sticky left-0 bg-zinc-50 z-10 shadow-[12px_0_15px_-5px_rgba(0,0,0,0.05)]">Student</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-center">Present</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-center">Absent</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-center">Leave</th>
+                        <th className="px-4 py-3 md:px-6 md:py-4 text-xs font-bold text-zinc-400 uppercase text-center">Holiday</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-black/5">
@@ -1137,18 +1166,18 @@ export default function App() {
                           </td>
                         </tr>
                       ) : attendanceSummary.map(row => (
-                        <tr key={row.student.id} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-4 flex items-center gap-3">
+                        <tr key={row.student.id} className="hover:bg-zinc-50/50 transition-colors group">
+                          <td className="px-4 py-3 md:px-6 md:py-4 flex items-center gap-3 sticky left-0 bg-white group-hover:bg-zinc-50/50 z-10 shadow-[12px_0_15px_-5px_rgba(0,0,0,0.05)]">
                             <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
                               {getInitials(row.student.full_name)}
                             </div>
                             <span className="font-bold">{row.student.full_name}</span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-zinc-500">Grade {row.student.class_grade}</td>
-                          <td className="px-6 py-4 text-center font-bold text-emerald-600">{row.stats.present}</td>
-                          <td className="px-6 py-4 text-center font-bold text-rose-600">{row.stats.absent}</td>
-                          <td className="px-6 py-4 text-center font-bold text-amber-600">{row.stats.leave}</td>
-                          <td className="px-6 py-4 text-center font-bold text-zinc-500">{row.stats.holiday}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-sm text-zinc-500">Grade {row.student.class_grade}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-center font-bold text-emerald-600">{row.stats.present}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-center font-bold text-rose-600">{row.stats.absent}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-center font-bold text-amber-600">{row.stats.leave}</td>
+                          <td className="px-4 py-3 md:px-6 md:py-4 text-center font-bold text-zinc-500">{row.stats.holiday}</td>
                         </tr>
                       ))}
                     </tbody>
