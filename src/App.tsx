@@ -87,6 +87,7 @@ interface DashboardData {
   leftThisMonth: number;
   unpaidStudents: Student[];
   paidFees: (Fee & { student: { full_name: string } })[];
+  monthlyAttendance: AttendanceRecord[];
 }
 
 // --- Components ---
@@ -122,6 +123,7 @@ export default function App() {
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
   const [reportFilter, setReportFilter] = useState('');
+  const [reportType, setReportType] = useState<'fees' | 'attendance'>('fees');
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showFeeModal, setShowFeeModal] = useState(false);
@@ -217,6 +219,13 @@ export default function App() {
       .gte('leaving_date', startOfMonth)
       .lte('leaving_date', endOfMonth);
 
+    // 4. Monthly Attendance
+    const { data: monthlyAtt } = await client
+      .from('attendance')
+      .select('*')
+      .gte('attendance_date', startOfMonth)
+      .lte('attendance_date', endOfMonth);
+
     if (activeStudents && paidFees) {
       const totalCollected = paidFees.reduce((sum, f) => sum + f.amount, 0);
       const cashCollected = paidFees.filter(f => f.payment_mode === 'Cash').reduce((sum, f) => sum + f.amount, 0);
@@ -234,7 +243,8 @@ export default function App() {
         unpaidCount: unpaidStudents.length,
         leftThisMonth: leftStudents?.length || 0,
         unpaidStudents,
-        paidFees: paidFees as any
+        paidFees: paidFees as any,
+        monthlyAttendance: monthlyAtt || []
       });
     }
   };
@@ -272,6 +282,30 @@ export default function App() {
       s.class_grade.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [students, searchTerm]);
+
+  const attendanceSummary = useMemo(() => {
+    if (!dashboard?.monthlyAttendance) return [];
+    
+    const summary: Record<number, { present: number, absent: number, leave: number, holiday: number }> = {};
+    
+    dashboard.monthlyAttendance.forEach(record => {
+      if (!summary[record.student_id]) {
+        summary[record.student_id] = { present: 0, absent: 0, leave: 0, holiday: 0 };
+      }
+      if (record.status === 'Present') summary[record.student_id].present++;
+      if (record.status === 'Absent') summary[record.student_id].absent++;
+      if (record.status === 'Leave') summary[record.student_id].leave++;
+      if (record.status === 'Holiday') summary[record.student_id].holiday++;
+    });
+
+    return students
+      .filter(s => s.status === 'Active')
+      .filter(s => !reportFilter || s.class_grade === reportFilter)
+      .map(s => ({
+        student: s,
+        stats: summary[s.id] || { present: 0, absent: 0, leave: 0, holiday: 0 }
+      }));
+  }, [dashboard?.monthlyAttendance, students, reportFilter]);
 
   // --- Actions ---
   const markAttendance = async (studentId: number, status: string) => {
@@ -374,25 +408,45 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    if (!dashboard?.paidFees) return;
-    const headers = ['Student Name', 'Amount', 'Date', 'Mode', 'Reference'];
-    const rows = dashboard.paidFees
-      .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
-      .map(f => [
-        f.student?.full_name || 'Unknown',
-        f.amount,
-        f.paid_date,
-        f.payment_mode,
-        f.payment_reference || ''
+    if (reportType === 'fees') {
+      if (!dashboard?.paidFees) return;
+      const headers = ['Student Name', 'Amount', 'Date', 'Mode', 'Reference'];
+      const rows = dashboard.paidFees
+        .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
+        .map(f => [
+          f.student?.full_name || 'Unknown',
+          f.amount,
+          f.paid_date,
+          f.payment_mode,
+          f.payment_reference || ''
+        ]);
+      const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `fees_${selectedMonth}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      const headers = ['Student Name', 'Class', 'Present', 'Absent', 'Leave', 'Holiday'];
+      const rows = attendanceSummary.map(row => [
+        row.student.full_name,
+        row.student.class_grade,
+        row.stats.present,
+        row.stats.absent,
+        row.stats.leave,
+        row.stats.holiday
       ]);
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", `fees_${selectedMonth}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute("download", `attendance_${selectedMonth}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const copyReminder = (s: Student) => {
@@ -588,24 +642,44 @@ export default function App() {
                     ))}
                   </select>
                 </div>
-                <button 
-                  onClick={async () => {
-                    const client = getSupabase();
-                    if (!client) return;
-                    const active = filteredStudents.filter(s => s.status === 'Active');
-                    const upserts = active.map(s => ({
-                      student_id: s.id,
-                      attendance_date: attendanceDate,
-                      status: 'Present',
-                      teacher_id: session.user.id
-                    }));
-                    await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
-                    fetchData();
-                  }}
-                  className="w-full sm:w-auto bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-emerald-600 transition-colors"
-                >
-                  <CheckCircle2 size={20} /> Mark All Present
-                </button>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button 
+                    onClick={async () => {
+                      const client = getSupabase();
+                      if (!client) return;
+                      const active = filteredStudents.filter(s => s.status === 'Active');
+                      const upserts = active.map(s => ({
+                        student_id: s.id,
+                        attendance_date: attendanceDate,
+                        status: 'Present',
+                        teacher_id: session.user.id
+                      }));
+                      await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
+                      fetchData();
+                    }}
+                    className="flex-1 sm:flex-none bg-emerald-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-emerald-600 transition-colors"
+                  >
+                    <CheckCircle2 size={20} /> Mark All Present
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      const client = getSupabase();
+                      if (!client) return;
+                      const active = filteredStudents.filter(s => s.status === 'Active');
+                      const upserts = active.map(s => ({
+                        student_id: s.id,
+                        attendance_date: attendanceDate,
+                        status: 'Holiday',
+                        teacher_id: session.user.id
+                      }));
+                      await client.from('attendance').upsert(upserts, { onConflict: 'student_id,attendance_date' });
+                      fetchData();
+                    }}
+                    className="flex-1 sm:flex-none bg-indigo-500 text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-indigo-600 transition-colors"
+                  >
+                    Mark All Holiday
+                  </button>
+                </div>
               </div>
 
               <Card className="!p-0 overflow-hidden">
@@ -638,7 +712,7 @@ export default function App() {
                           <td className="px-6 py-4 text-sm text-zinc-500">Grade {s.class_grade} • {s.batch_timing || 'No Batch'}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
-                              {['Present', 'Absent', 'Leave'].map(status => (
+                              {['Present', 'Absent', 'Leave', 'Holiday'].map(status => (
                                 <button
                                   key={status}
                                   onClick={() => markAttendance(s.id, status)}
@@ -646,7 +720,8 @@ export default function App() {
                                     record?.status === status 
                                       ? status === 'Present' ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm' 
                                       : status === 'Absent' ? 'bg-rose-500 text-white border-rose-500 shadow-sm'
-                                      : 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                      : status === 'Leave' ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                      : 'bg-indigo-500 text-white border-indigo-500 shadow-sm'
                                     : 'bg-white text-zinc-500 border-black/10 hover:bg-zinc-50'
                                   }`}
                                 >
@@ -942,10 +1017,24 @@ export default function App() {
 
           {view === 'reports' && (
             <motion.div key="rep" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-              <div className="flex justify-between items-center">
-                <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="flex bg-white border border-black/5 rounded-xl p-1 shadow-sm w-full sm:w-auto">
+                  <button 
+                    onClick={() => setReportType('fees')}
+                    className={`flex-1 px-6 py-2 rounded-lg text-sm font-bold transition-all ${reportType === 'fees' ? 'bg-indigo-50 text-indigo-600' : 'text-zinc-500 hover:bg-zinc-50'}`}
+                  >
+                    Fee Report
+                  </button>
+                  <button 
+                    onClick={() => setReportType('attendance')}
+                    className={`flex-1 px-6 py-2 rounded-lg text-sm font-bold transition-all ${reportType === 'attendance' ? 'bg-indigo-50 text-indigo-600' : 'text-zinc-500 hover:bg-zinc-50'}`}
+                  >
+                    Attendance Report
+                  </button>
+                </div>
+                <div className="flex gap-4 w-full sm:w-auto">
                   <select 
-                    className="bg-white border border-black/5 rounded-xl px-4 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="bg-white border border-black/5 rounded-xl px-4 py-2 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:flex-none"
                     onChange={(e) => setReportFilter(e.target.value)}
                     value={reportFilter}
                   >
@@ -954,51 +1043,90 @@ export default function App() {
                       <option key={c} value={c}>Grade {c}</option>
                     ))}
                   </select>
+                  <button 
+                    onClick={exportCSV}
+                    className="bg-white border border-black/5 text-zinc-700 px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm hover:bg-zinc-50 flex-1 sm:flex-none"
+                  >
+                    <Download size={20} /> Export
+                  </button>
                 </div>
-                <button 
-                  onClick={exportCSV}
-                  className="bg-white border border-black/5 text-zinc-700 px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm hover:bg-zinc-50"
-                >
-                  <Download size={20} /> Export CSV
-                </button>
               </div>
               <Card className="!p-0 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-zinc-50 border-b border-black/5">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Amount</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Date</th>
-                      <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Mode</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-black/5">
-                    {(!dashboard?.paidFees || dashboard.paidFees.length === 0) ? (
+                {reportType === 'fees' ? (
+                  <table className="w-full text-left">
+                    <thead className="bg-zinc-50 border-b border-black/5">
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-400">
-                          <CreditCard className="mx-auto mb-3 opacity-20" size={48} />
-                          <p className="font-medium">No fees recorded for this month</p>
-                        </td>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Amount</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Date</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Mode</th>
                       </tr>
-                    ) : dashboard.paidFees
-                      .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
-                      .map(f => (
-                      <tr key={f.id} className="hover:bg-zinc-50/50 transition-colors">
-                        <td className="px-6 py-4 flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
-                            {getInitials(f.student?.full_name || 'U')}
-                          </div>
-                          <span className="font-bold">{f.student?.full_name || 'Unknown'}</span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-zinc-500">Grade {f.student?.class_grade || 'N/A'}</td>
-                        <td className="px-6 py-4 font-bold text-emerald-600">₹{f.amount}</td>
-                        <td className="px-6 py-4 text-sm text-zinc-500">{f.paid_date}</td>
-                        <td className="px-6 py-4"><Badge>{f.payment_mode}</Badge></td>
+                    </thead>
+                    <tbody className="divide-y divide-black/5">
+                      {(!dashboard?.paidFees || dashboard.paidFees.length === 0) ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center text-zinc-400">
+                            <CreditCard className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No fees recorded for this month</p>
+                          </td>
+                        </tr>
+                      ) : dashboard.paidFees
+                        .filter(f => !reportFilter || f.student?.class_grade === reportFilter)
+                        .map(f => (
+                        <tr key={f.id} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
+                              {getInitials(f.student?.full_name || 'U')}
+                            </div>
+                            <span className="font-bold">{f.student?.full_name || 'Unknown'}</span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-zinc-500">Grade {f.student?.class_grade || 'N/A'}</td>
+                          <td className="px-6 py-4 font-bold text-emerald-600">₹{f.amount}</td>
+                          <td className="px-6 py-4 text-sm text-zinc-500">{f.paid_date}</td>
+                          <td className="px-6 py-4"><Badge>{f.payment_mode}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left">
+                    <thead className="bg-zinc-50 border-b border-black/5">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Student</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase">Class</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Present</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Absent</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Leave</th>
+                        <th className="px-6 py-4 text-xs font-bold text-zinc-400 uppercase text-center">Holiday</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-black/5">
+                      {attendanceSummary.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center text-zinc-400">
+                            <CalendarCheck className="mx-auto mb-3 opacity-20" size={48} />
+                            <p className="font-medium">No students found</p>
+                          </td>
+                        </tr>
+                      ) : attendanceSummary.map(row => (
+                        <tr key={row.student.id} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                              {getInitials(row.student.full_name)}
+                            </div>
+                            <span className="font-bold">{row.student.full_name}</span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-zinc-500">Grade {row.student.class_grade}</td>
+                          <td className="px-6 py-4 text-center font-bold text-emerald-600">{row.stats.present}</td>
+                          <td className="px-6 py-4 text-center font-bold text-rose-600">{row.stats.absent}</td>
+                          <td className="px-6 py-4 text-center font-bold text-amber-600">{row.stats.leave}</td>
+                          <td className="px-6 py-4 text-center font-bold text-zinc-500">{row.stats.holiday}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </Card>
             </motion.div>
           )}
