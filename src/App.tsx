@@ -18,7 +18,9 @@ import {
   UserPlus,
   LogOut,
   CalendarCheck,
-  History
+  History,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
@@ -455,8 +457,6 @@ export default function App() {
     alert("Reminder copied to clipboard!");
   };
 
-  const [isSignUp, setIsSignUp] = useState(false);
-
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const client = getSupabase();
@@ -469,14 +469,8 @@ export default function App() {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     
-    if (isSignUp) {
-      const { error } = await client.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else alert("Check your email for a confirmation link (if enabled) or try signing in!");
-    } else {
-      const { error } = await client.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message);
-    }
+    const { error } = await client.auth.signInWithPassword({ email, password });
+    if (error) alert(error.message);
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-zinc-400">Loading Rajeev Classes...</div>;
@@ -521,22 +515,6 @@ export default function App() {
             </div>
           ) : (
             <form onSubmit={handleAuth} className="space-y-4">
-              <div className="flex bg-zinc-100 p-1 rounded-xl mb-4">
-                <button 
-                  type="button"
-                  onClick={() => setIsSignUp(false)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${!isSignUp ? 'bg-white shadow-sm text-indigo-600' : 'text-zinc-500'}`}
-                >
-                  Sign In
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setIsSignUp(true)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${isSignUp ? 'bg-white shadow-sm text-indigo-600' : 'text-zinc-500'}`}
-                >
-                  Sign Up
-                </button>
-              </div>
               <div>
                 <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Email</label>
                 <input name="email" type="email" required className="w-full px-4 py-3 bg-zinc-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="teacher@rajeev.com" />
@@ -546,18 +524,9 @@ export default function App() {
                 <input name="password" type="password" required className="w-full px-4 py-3 bg-zinc-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
               </div>
               <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                {isSignUp ? 'Create Account' : 'Sign In'}
+                Sign In
               </button>
             </form>
-          )}
-          
-          {isConfigured && (
-            <p className="mt-6 text-center text-xs text-zinc-400">
-              {isSignUp ? 'Already have an account?' : "Don't have an account?"} 
-              <button onClick={() => setIsSignUp(!isSignUp)} className="ml-1 text-indigo-600 font-bold hover:underline">
-                {isSignUp ? 'Sign In' : 'Sign Up'}
-              </button>
-            </p>
           )}
         </Card>
       </div>
@@ -625,12 +594,34 @@ export default function App() {
             <motion.div key="att" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
                 <div className="flex gap-4 items-center w-full sm:w-auto">
-                  <input 
-                    type="date" 
-                    value={attendanceDate} 
-                    onChange={(e) => setAttendanceDate(e.target.value)}
-                    className="bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <div className="flex items-center bg-white border border-black/5 rounded-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500">
+                    <button 
+                      onClick={() => {
+                        const d = new Date(attendanceDate);
+                        d.setUTCDate(d.getUTCDate() - 1);
+                        setAttendanceDate(d.toISOString().split('T')[0]);
+                      }}
+                      className="p-2.5 text-zinc-400 hover:text-indigo-600 hover:bg-zinc-50 transition-colors"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <input 
+                      type="date" 
+                      value={attendanceDate} 
+                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      className="px-2 py-2.5 text-sm font-medium outline-none border-x border-black/5"
+                    />
+                    <button 
+                      onClick={() => {
+                        const d = new Date(attendanceDate);
+                        d.setUTCDate(d.getUTCDate() + 1);
+                        setAttendanceDate(d.toISOString().split('T')[0]);
+                      }}
+                      className="p-2.5 text-zinc-400 hover:text-indigo-600 hover:bg-zinc-50 transition-colors"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
                   <select 
                     className="bg-white border border-black/5 rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
                     onChange={(e) => setSearchTerm(e.target.value)}
